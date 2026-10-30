@@ -561,7 +561,7 @@ export default function GeeksCommunity() {
 
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [authTab, setAuthTab] = useState<"signin" | "request" | "signup">("signin");
-  const [loginEmail, setLoginEmail] = useState("ghantysayan8@gmail.com");
+  const [loginEmail, setLoginEmail] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState("");
@@ -1243,7 +1243,7 @@ export default function GeeksCommunity() {
       setAuthError(error.message || "Failed to submit request.");
     } else {
       setAuthSuccessMsg(
-        `Request dispatched! A notification message was sent to Master Admin (${MASTER_ADMIN_EMAIL}). Your coordinator rights will only be active after explicit approval.`
+        "Request dispatched! A notification was routed to the administrator for review. Your coordinator rights will only be active after explicit approval."
       );
       setReqName("");
       setReqEmail("");
@@ -3442,9 +3442,9 @@ export default function GeeksCommunity() {
                   Anyone can view events and community activities. However, coordinator rights (adding/editing events, team profiles, and applicants) are strictly restricted.
                 </p>
                 <div className="mt-2.5 text-[11px] font-sans text-[#E8D5B5] bg-black/40 p-2 rounded-xl border border-white/[0.08] flex items-center justify-between">
-                  <span>Master Administrator:</span>
+                  <span>Review Authority:</span>
                   <strong className="text-white bg-[#151518] px-2 py-0.5 rounded-full border border-[#E8D5B5]/30">
-                    {MASTER_ADMIN_EMAIL}
+                    Master Administrator
                   </strong>
                 </div>
               </div>
@@ -3527,7 +3527,7 @@ export default function GeeksCommunity() {
                         required
                         value={loginEmail}
                         onChange={(e) => setLoginEmail(e.target.value)}
-                        placeholder="ghantysayan8@gmail.com"
+                        placeholder="coordinator@domain.edu"
                         className="w-full pl-9 pr-4 py-2.5 rounded-xl border border-white/10 bg-[#08080a] text-white text-xs font-sans focus:outline-none focus:border-[#E8D5B5] transition-colors"
                       />
                       <Mail className="w-4 h-4 text-neutral-500 absolute left-3 top-3" />
@@ -3561,7 +3561,7 @@ export default function GeeksCommunity() {
                   </button>
 
                   <p className="text-[11px] text-[#9c968f] text-center font-sans pt-1">
-                    Not yet approved? Switch to <strong className="text-[#E8D5B5] cursor-pointer underline" onClick={() => setAuthTab("request")}>REQUEST ACCESS</strong> to send an application to {MASTER_ADMIN_EMAIL}.
+                    Not yet approved? Switch to <strong className="text-[#E8D5B5] cursor-pointer underline" onClick={() => setAuthTab("request")}>REQUEST ACCESS</strong> to submit an authorization application.
                   </p>
                 </form>
               )}
@@ -3570,7 +3570,7 @@ export default function GeeksCommunity() {
               {authTab === "request" && (
                 <form onSubmit={handleSubmitAccessRequest} className="space-y-3">
                   <div className="p-3 rounded-xl border border-[#E8D5B5]/20 bg-[#E8D5B5]/5 text-[11px] font-sans text-[#b0aba4] leading-relaxed">
-                    Submit your details below. A notification will be routed to <strong>{MASTER_ADMIN_EMAIL}</strong> for review and authorization.
+                    Submit your details below. A notification will be routed to the administrator for review and authorization.
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -3706,7 +3706,7 @@ export default function GeeksCommunity() {
                   </button>
 
                   <p className="text-[11px] text-[#9c968f] text-center font-sans pt-1">
-                    Note: Creating an account registers an access request. Master Admin ({MASTER_ADMIN_EMAIL}) approval is still required to obtain coordinator privileges.
+                    Note: Creating an account registers an access request. Administrator approval is still required to obtain coordinator privileges.
                   </p>
                 </form>
               )}
@@ -3730,7 +3730,7 @@ export default function GeeksCommunity() {
                 </div>
                 <div>
                   <span className="text-[10px] font-sans text-[#E8D5B5] tracking-[0.2em] uppercase">
-                    Master Admin Controls // {MASTER_ADMIN_EMAIL}
+                    Master Admin Controls // Authorization Dashboard
                   </span>
                   <h3 className="font-sans text-lg sm:text-2xl font-medium text-white">
                     Coordinator Access Requests
