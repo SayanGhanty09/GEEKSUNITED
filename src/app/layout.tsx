@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "GEEKS UNITED // Neural Matrix to Quantum CPU",
-  description: "Cinematic, ultra-realistic futuristic technology transition video and scroll-driven hero experience.",
+  title: "GEEKS UNITED // Developer & Creative Collective",
+  description: "A premier collective of developers, engineers, and creators building next-generation software, events, and hackathons.",
 };
 
 export default function RootLayout({
@@ -13,7 +13,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="dark h-full">
-      <body className="min-h-full flex flex-col bg-[#030712] text-gray-100 antialiased selection:bg-cyan-500/30 selection:text-cyan-200">
+      <body className="min-h-full flex flex-col bg-[#08080a] text-[#f5efeb] antialiased selection:bg-[#E8D5B5]/25 selection:text-[#FAF6F0]">
         {children}
       </body>
     </html>

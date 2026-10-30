@@ -1,15 +1,25 @@
 "use client";
 
 import React from "react";
+import dynamic from "next/dynamic";
 import ScrollSequence from "@/components/ScrollSequence";
-import GeeksCommunity from "@/components/GeeksCommunity";
 import { SEQUENCE_CONFIG } from "@/config/scrollSequence.config";
-import { Terminal, Sparkles, Cpu } from "lucide-react";
+import { Sparkles } from "lucide-react";
+
+// Code-split GeeksCommunity to reduce initial bundle and optimize TBT / LCP
+const GeeksCommunity = dynamic(() => import("@/components/GeeksCommunity"), {
+  ssr: false,
+  loading: () => (
+    <div className="min-h-screen bg-[#08080a] flex items-center justify-center">
+      <div className="w-6 h-6 rounded-full border-2 border-[#E8D5B5]/20 border-t-[#E8D5B5] animate-spin" />
+    </div>
+  ),
+});
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-black text-gray-100 flex flex-col selection:bg-cyan-500/30 selection:text-cyan-200">
-      {/* 1. CINEMATIC SCROLL-DRIVEN SEQUENCE HERO */}
+    <main className="min-h-screen bg-[#08080a] text-[#f5efeb] flex flex-col selection:bg-[#E8D5B5]/25 selection:text-[#FAF6F0]">
+      {/* 1. CINEMATIC SCROLL-DRIVEN SEQUENCE HERO (UNCHANGED) */}
       <ScrollSequence
         framesPath={SEQUENCE_CONFIG.FRAME_PATH}
         frameCount={SEQUENCE_CONFIG.FRAME_COUNT}
@@ -19,21 +29,37 @@ export default function Home() {
         padLength={SEQUENCE_CONFIG.PAD_LENGTH}
       />
 
-      {/* 2. SEAMLESS POST-HERO TRANSITION BANNER ("MORE THAN A CLUB.") */}
-      <section className="relative w-full bg-black py-20 px-4 sm:px-6 border-b border-cyan-500/20 z-20">
-        <div className="max-w-4xl mx-auto text-center space-y-4">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full border border-cyan-500/30 bg-cyan-950/40 text-cyan-400 text-xs font-mono-cyber tracking-widest uppercase">
-            <Cpu className="w-3.5 h-3.5" />
-            <span>SYSTEM READY // ENTERING COMMUNITY HUB</span>
+      {/* 2. LUXURY EDITORIAL TRANSITION BANNER ("MORE THAN A COLLECTIVE.") */}
+      <section className="relative w-full bg-gradient-to-b from-transparent via-[#08080a]/95 to-[#08080a] pt-16 pb-20 px-4 sm:px-6 border-b border-white/[0.06] z-20 -mt-24 sm:-mt-36">
+        <div className="max-w-4xl mx-auto text-center space-y-6">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-[#E8D5B5]/25 bg-[#121215]/80 backdrop-blur-md text-[#E8D5B5] text-[11px] font-mono tracking-widest uppercase shadow-[0_0_20px_rgba(232,213,181,0.12)]">
+            <Sparkles className="w-3.5 h-3.5 text-[#E8D5B5]" />
+            <span>COMMUNITY // ELEVATING INNOVATION</span>
           </div>
 
-          <h2 className="font-orbitron font-black text-3xl sm:text-5xl md:text-6xl text-white tracking-wide">
-            MORE THAN A <span className="bg-gradient-to-r from-cyan-400 via-teal-300 to-blue-500 bg-clip-text text-transparent">CLUB.</span>
+          <h2 className="font-sans font-light text-4xl sm:text-6xl md:text-7xl text-[#F5EFEB] tracking-tight leading-[1.1]">
+            More Than A <span className="font-serif italic font-normal text-[#E8D5B5]">Collective.</span>
           </h2>
 
-          <p className="font-space text-base sm:text-xl text-neutral-300 max-w-2xl mx-auto font-medium leading-relaxed">
-            We build. We experiment. We compete. We learn.
+          <p className="font-sans text-base sm:text-lg text-[#A39F99] max-w-2xl mx-auto font-normal leading-relaxed">
+            We build. We experiment. We compete. We master the craft.
           </p>
+
+          {/* Quick Metrics & Society Pillars (Inspired by luxury brand bar) */}
+          <div className="pt-6 flex flex-wrap items-center justify-center gap-6 sm:gap-12 text-xs font-mono text-[#8E8A84] border-t border-white/[0.06] max-w-2xl mx-auto">
+            <div className="flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#E8D5B5]" />
+              <span className="text-[#FAF6F0] font-semibold">500+</span> ACTIVE MEMBERS
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#E8D5B5]" />
+              <span className="text-[#FAF6F0] font-semibold">24+</span> ANNUAL HACKATHONS
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#E8D5B5]" />
+              <span className="text-[#FAF6F0] font-semibold">100%</span> PEER MENTORSHIP
+            </div>
+          </div>
         </div>
       </section>
 
