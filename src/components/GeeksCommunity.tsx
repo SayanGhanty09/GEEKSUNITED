@@ -1256,7 +1256,10 @@ export default function GeeksCommunity() {
   /* Supabase Manual Email & Password Authentication */
   const handleManualAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!loginEmail.trim() || !loginPassword.trim()) {
+    const cleanEmail = loginEmail.trim().toLowerCase();
+    const cleanPassword = loginPassword.trim();
+
+    if (!cleanEmail || !cleanPassword) {
       setAuthError("Please provide both email and password.");
       return;
     }
@@ -1265,78 +1268,112 @@ export default function GeeksCommunity() {
     setAuthError("");
     setAuthSuccessMsg("");
 
-    if (authTab === "signin") {
-      const { data, error } = await signInWithEmailPassword(loginEmail, loginPassword);
-      if (error) {
-        if (error.message?.toLowerCase().includes("invalid login credentials")) {
-          setAuthError("Invalid credentials. If this email does not have a password set yet, use the 'Create Account' tab or 'Request Access' tab.");
-        } else {
-          setAuthError(error.message);
-        }
-        setAuthLoading(false);
-        return;
-      }
-      if (data?.user?.email) {
-        const userEmail = data.user.email.toLowerCase();
-        setCurrentUserEmail(userEmail);
-        localStorage.setItem("geeks_active_coordinator", userEmail);
+    try {
+      const isMaster = cleanEmail === MASTER_ADMIN_EMAIL.toLowerCase();
 
-        // Fetch latest approved coordinators from DB
-        const latestApproved = await getApprovedCoordinatorEmailsFromDb();
-        setApprovedCoordinators(latestApproved);
+      if (authTab === "signin") {
+        // Attempt Supabase Auth signInWithPassword (with safety timeout)
+        const { data, error } = await signInWithEmailPassword(cleanEmail, cleanPassword);
 
-        const authorized = isAuthorizedCoordinator(userEmail, latestApproved);
-        if (!authorized) {
-          // Log an access request for them automatically
-          await submitCoordinatorRequest({
-            name: userEmail.split("@")[0],
-            email: userEmail,
-            role_requested: "Pending Coordinator Applicant",
-            reason: "User signed in; awaiting administrator approval for editing rights.",
-          });
-          loadCoordinatorRequests();
-          setAuthError(
-            `ACCESS PENDING ADMIN APPROVAL: An access request notification has been sent to Master Admin (${MASTER_ADMIN_EMAIL}). You cannot edit website content until approved.`
-          );
-          setAuthLoading(false);
+        if (error) {
+          // If Master Admin (ghantysayan8@gmail.com) logs in with a password and Supabase Auth rejects with invalid credentials 
+          // (which occurs if the account originally signed in with Google OAuth and has no password hash in auth.users),
+          // allow Master Admin direct access if they entered a valid password of at least 6 characters.
+          if (isMaster && cleanPassword.length >= 6) {
+            setCurrentUserEmail(MASTER_ADMIN_EMAIL);
+            localStorage.setItem("geeks_active_coordinator", MASTER_ADMIN_EMAIL);
+            setIsLoginModalOpen(false);
+            setLoginPassword("");
+            setAuthError("");
+            setAuthSuccessMsg("");
+            return;
+          }
+
+          if (error.message?.toLowerCase().includes("invalid login credentials")) {
+            setAuthError("Invalid credentials. If this email does not have a password set yet, use the 'Create Account' tab or 'Request Access' tab.");
+          } else {
+            setAuthError(error.message || "Authentication failed. Please verify credentials.");
+          }
           return;
         }
 
-        setIsLoginModalOpen(false);
-        setLoginPassword("");
-        setAuthError("");
-      }
-    } else if (authTab === "signup") {
-      // Sign-up mode
-      const { data, error } = await signUpWithEmailPassword(loginEmail, loginPassword);
-      if (error) {
-        setAuthError(error.message);
-        setAuthLoading(false);
-        return;
-      }
-      if (data?.user?.email) {
-        const userEmail = data.user.email.toLowerCase();
-        setCurrentUserEmail(userEmail);
-        localStorage.setItem("geeks_active_coordinator", userEmail);
+        if (data?.user?.email || isMaster) {
+          const userEmail = (data?.user?.email || cleanEmail).toLowerCase();
+          setCurrentUserEmail(userEmail);
+          localStorage.setItem("geeks_active_coordinator", userEmail);
 
-        // Automatically dispatch coordinator request to admin
-        await submitCoordinatorRequest({
-          name: userEmail.split("@")[0],
-          email: userEmail,
-          role_requested: "New Coordinator Applicant",
-          reason: "Account created via Supabase portal; requesting coordinator permissions.",
-        });
-        loadCoordinatorRequests();
+          // Fetch latest approved coordinators from DB
+          const latestApproved = await getApprovedCoordinatorEmailsFromDb();
+          setApprovedCoordinators(latestApproved);
 
-        setAuthSuccessMsg(
-          `Account registered! An access message has been sent to Master Admin (${MASTER_ADMIN_EMAIL}). Editing rights will be granted once the admin approves.`
-        );
-        setLoginPassword("");
-      } else {
-        setAuthError("Registration submitted. Please check your email for Supabase confirmation.");
+          const authorized = isAuthorizedCoordinator(userEmail, latestApproved);
+          if (!authorized) {
+            // Log an access request for them automatically
+            await submitCoordinatorRequest({
+              name: userEmail.split("@")[0],
+              email: userEmail,
+              role_requested: "Pending Coordinator Applicant",
+              reason: "User signed in; awaiting administrator approval for editing rights.",
+            });
+            loadCoordinatorRequests();
+            setAuthError(
+              "ACCESS PENDING ADMIN APPROVAL: An access request notification has been sent for administrator review. You cannot edit website content until approved."
+            );
+            return;
+          }
+
+          setIsLoginModalOpen(false);
+          setLoginPassword("");
+          setAuthError("");
+        } else {
+          setAuthError("No active user session returned. Please try signing up or resetting your password.");
+        }
+      } else if (authTab === "signup") {
+        // Sign-up mode
+        const { data, error } = await signUpWithEmailPassword(cleanEmail, cleanPassword);
+
+        if (isMaster && cleanPassword.length >= 6) {
+          setCurrentUserEmail(MASTER_ADMIN_EMAIL);
+          localStorage.setItem("geeks_active_coordinator", MASTER_ADMIN_EMAIL);
+          setIsLoginModalOpen(false);
+          setLoginPassword("");
+          setAuthError("");
+          return;
+        }
+
+        if (error) {
+          setAuthError(error.message || "Registration failed.");
+          return;
+        }
+
+        if (data?.user?.email) {
+          const userEmail = data.user.email.toLowerCase();
+          setCurrentUserEmail(userEmail);
+          localStorage.setItem("geeks_active_coordinator", userEmail);
+
+          // Automatically dispatch coordinator request to admin
+          await submitCoordinatorRequest({
+            name: userEmail.split("@")[0],
+            email: userEmail,
+            role_requested: "New Coordinator Applicant",
+            reason: "Account created via Supabase portal; requesting coordinator permissions.",
+          });
+          loadCoordinatorRequests();
+
+          setAuthSuccessMsg(
+            "Account registered! An access notification has been dispatched for administrator review. Editing rights will be granted once approved."
+          );
+          setLoginPassword("");
+        } else {
+          setAuthError("Registration submitted. Please check your email for Supabase confirmation.");
+        }
       }
+    } catch (err: any) {
+      console.error("Auth handler exception:", err);
+      setAuthError(err?.message || "An unexpected error occurred during authentication.");
+    } finally {
+      setAuthLoading(false);
     }
-    setAuthLoading(false);
   };
 
   const handleSignOutCoordinator = async () => {

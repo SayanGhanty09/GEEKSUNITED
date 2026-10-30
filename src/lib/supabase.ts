@@ -102,11 +102,26 @@ export async function signInWithEmailPassword(
   password: string
 ): Promise<{ data: any; error: any }> {
   try {
-    const { data, error } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
-    return { data, error };
+    const timeoutPromise = new Promise<{ data: null; error: any }>((resolve) =>
+      setTimeout(
+        () =>
+          resolve({
+            data: null,
+            error: { message: "Authentication request timed out after 5 seconds. Please check your internet connection." },
+          }),
+        5000
+      )
+    );
+
+    const authPromise = (async () => {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
+      return { data, error };
+    })();
+
+    return await Promise.race([authPromise, timeoutPromise]);
   } catch (err: any) {
     console.warn("Supabase email sign-in exception:", err?.message);
     return { data: null, error: err };
@@ -121,11 +136,26 @@ export async function signUpWithEmailPassword(
   password: string
 ): Promise<{ data: any; error: any }> {
   try {
-    const { data, error } = await supabase.auth.signUp({
-      email: email.trim(),
-      password,
-    });
-    return { data, error };
+    const timeoutPromise = new Promise<{ data: null; error: any }>((resolve) =>
+      setTimeout(
+        () =>
+          resolve({
+            data: null,
+            error: { message: "Registration request timed out after 5 seconds. Please try again." },
+          }),
+        5000
+      )
+    );
+
+    const authPromise = (async () => {
+      const { data, error } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+      });
+      return { data, error };
+    })();
+
+    return await Promise.race([authPromise, timeoutPromise]);
   } catch (err: any) {
     console.warn("Supabase email sign-up exception:", err?.message);
     return { data: null, error: err };
