@@ -31,7 +31,7 @@ CREATE POLICY "Allow public update on events" ON events FOR UPDATE USING (true);
 CREATE POLICY "Allow public delete on events" ON events FOR DELETE USING (true);
 
 
--- 2. Coordinators Table (For Teacher and Student Coordinators)
+-- 2. Coordinators Table (For Faculty and Student Coordinators)
 CREATE TABLE IF NOT EXISTS coordinators (
   id TEXT PRIMARY KEY,
   type TEXT NOT NULL CHECK (type IN ('teacher', 'student')),
@@ -130,3 +130,28 @@ CREATE POLICY "Allow public insert on coordinator_requests" ON coordinator_reque
 CREATE POLICY "Allow public read on coordinator_requests" ON coordinator_requests FOR SELECT USING (true);
 CREATE POLICY "Allow public update on coordinator_requests" ON coordinator_requests FOR UPDATE USING (true);
 CREATE POLICY "Allow public delete on coordinator_requests" ON coordinator_requests FOR DELETE USING (true);
+
+-- 6. Enable Realtime Publications (So every device & account receives live updates immediately)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND tablename = 'events'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE events;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND tablename = 'coordinators'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE coordinators;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables 
+    WHERE pubname = 'supabase_realtime' AND tablename = 'coordinator_requests'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE coordinator_requests;
+  END IF;
+END $$;

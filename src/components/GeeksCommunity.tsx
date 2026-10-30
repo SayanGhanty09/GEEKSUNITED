@@ -64,6 +64,7 @@ import {
   updateCoordinatorRequestStatus,
   deleteCoordinatorRequestFromDb,
   getApprovedCoordinatorEmailsFromDb,
+  compressImage,
 } from "@/lib/supabase";
 
 // Safe inline SVG icons for social links
@@ -425,12 +426,12 @@ const TiltCard3D = React.memo(function TiltCard3D({
 /* DEFAULT SEED COORDINATORS (3 TEACHERS + 6 STUDENTS)                     */
 /* ========================================================================= */
 const DEFAULT_COORDINATORS: DbCoordinator[] = [
-  // 3 Teacher Coordinators
+  // 3 Faculty Coordinators
   {
     id: "teacher-1",
     type: "teacher",
     name: "Dr. Subhashish Roy",
-    role: "Chief Teacher Coordinator",
+    role: "Chief Faculty Coordinator",
     dept_or_domain: "Dept. of Computer Science & Engineering",
     email: "subhashish.roy@college.edu",
     linkedin: "https://linkedin.com",
@@ -442,7 +443,7 @@ const DEFAULT_COORDINATORS: DbCoordinator[] = [
     id: "teacher-2",
     type: "teacher",
     name: "Prof. Debolina Banerjee",
-    role: "Faculty Advisor (Hardware & IoT)",
+    role: "Faculty Coordinator (Hardware & IoT)",
     dept_or_domain: "Dept. of Electronics & Communication",
     email: "debolina.banerjee@college.edu",
     linkedin: "https://linkedin.com",
@@ -691,48 +692,108 @@ export default function GeeksCommunity() {
     };
   }, []);
 
-  /* Supabase Database Sync for Events on Mount */
-  useEffect(() => {
-    getEventsFromDb().then(({ data, error }) => {
-      if (!error && data && data.length > 0) {
+  /* ============================================================== */
+  /* UNIVERSAL REAL-TIME DATABASE SYNC (CHANGES APPLY TO ALL USERS) */
+  /* ============================================================== */
+
+  const fetchEventsFromDatabase = useCallback(async () => {
+    try {
+      const { data, error } = await getEventsFromDb();
+      if (!error && data !== null) {
         setEvents(data);
-      } else {
         try {
-          const stored = localStorage.getItem("geeks_united_events_v2");
-          if (stored) {
-            const parsed = JSON.parse(stored);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              setEvents(parsed);
-            }
-          }
-        } catch (e) {
-          console.error("Failed to read events from storage", e);
-        }
+          localStorage.setItem("geeks_united_events_v2", JSON.stringify(data));
+        } catch (_) {}
       }
-    });
+    } catch (err) {
+      console.warn("Failed to fetch events from database:", err);
+    }
   }, []);
 
-  /* Supabase Database Sync for Coordinators on Mount */
-  useEffect(() => {
-    getCoordinatorsFromDb().then(({ data, error }) => {
+  const fetchCoordinatorsFromDatabase = useCallback(async () => {
+    try {
+      const { data, error } = await getCoordinatorsFromDb();
       if (!error && data && data.length > 0) {
         setCoordinators(data);
-      } else {
-        const stored = localStorage.getItem("geeks_coordinators_v1");
-        if (stored) {
-          try {
-            const parsed = JSON.parse(stored);
-            if (Array.isArray(parsed) && parsed.length > 0) {
-              setCoordinators(parsed);
-              return;
-            }
-          } catch (e) {}
+        try {
+          localStorage.setItem("geeks_coordinators_v1", JSON.stringify(data));
+        } catch (_) {}
+      } else if (!error && (!data || data.length === 0)) {
+        // Seed default coordinators to Supabase so all new viewers see the team
+        for (const c of DEFAULT_COORDINATORS) {
+          await upsertCoordinatorToDb(c);
         }
-        // Seed default coordinators to Supabase
-        DEFAULT_COORDINATORS.forEach((c) => upsertCoordinatorToDb(c));
+        setCoordinators(DEFAULT_COORDINATORS);
       }
-    });
+    } catch (err) {
+      console.warn("Failed to fetch coordinators from database:", err);
+    }
   }, []);
+
+  /* Universal Realtime WebSockets, Cross-Tab Broadcast & Polling */
+  useEffect(() => {
+    // 1. Initial immediate database sync
+    fetchEventsFromDatabase();
+    fetchCoordinatorsFromDatabase();
+
+    // 2. Real-time Supabase WebSocket Channel (Instantly updates all viewers when any coordinator makes a change)
+    const liveSyncChannel = supabase
+      .channel("geeks-live-sync-all")
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "events" },
+        () => {
+          fetchEventsFromDatabase();
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "coordinators" },
+        () => {
+          fetchCoordinatorsFromDatabase();
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "coordinator_requests" },
+        () => {
+          loadCoordinatorRequests();
+        }
+      )
+      .subscribe();
+
+    // 3. Same-browser Cross-Tab Broadcast Channel (0ms instant sync across tabs)
+    let broadcast: BroadcastChannel | null = null;
+    try {
+      if (typeof window !== "undefined" && "BroadcastChannel" in window) {
+        broadcast = new BroadcastChannel("geeks_community_sync");
+        broadcast.onmessage = (msg) => {
+          if (msg.data === "sync_events") fetchEventsFromDatabase();
+          if (msg.data === "sync_coordinators") fetchCoordinatorsFromDatabase();
+        };
+      }
+    } catch (_) {}
+
+    // 4. Window Focus Re-sync (Syncs whenever user switches back to this tab)
+    const handleWindowFocus = () => {
+      fetchEventsFromDatabase();
+      fetchCoordinatorsFromDatabase();
+    };
+    window.addEventListener("focus", handleWindowFocus);
+
+    // 5. Periodic Background Polling (Syncs every 6 seconds as a bulletproof network fallback)
+    const pollInterval = setInterval(() => {
+      fetchEventsFromDatabase();
+      fetchCoordinatorsFromDatabase();
+    }, 6000);
+
+    return () => {
+      liveSyncChannel.unsubscribe();
+      if (broadcast) broadcast.close();
+      window.removeEventListener("focus", handleWindowFocus);
+      clearInterval(pollInterval);
+    };
+  }, [fetchEventsFromDatabase, fetchCoordinatorsFromDatabase]);
 
   const saveEvents = (updated: EventItem[]) => {
     setEvents(updated);
@@ -790,21 +851,27 @@ export default function GeeksCommunity() {
     setIsAddEventOpen(true);
   };
 
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) {
-      setPhotoError("Image size must be under 5MB");
+    if (file.size > 10 * 1024 * 1024) {
+      setPhotoError("Image size must be under 10MB");
       return;
     }
     setPhotoError("");
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        setFormPhoto(reader.result);
-      }
-    };
-    reader.readAsDataURL(file);
+    try {
+      // Auto-compress photo to clean WebP/JPEG under 100KB for instant Supabase sync
+      const compressed = await compressImage(file, 1000, 0.75);
+      setFormPhoto(compressed);
+    } catch {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          setFormPhoto(reader.result);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const handleCreateEvent = async (e: React.FormEvent) => {
@@ -823,6 +890,7 @@ export default function GeeksCommunity() {
       tag: formTag.trim() || "TECH EVENT",
     };
 
+    // Optimistic local update
     let updatedEvents: EventItem[];
     if (editingEventId) {
       updatedEvents = events.map((ev) => (ev.id === editingEventId ? newEv : ev));
@@ -831,8 +899,24 @@ export default function GeeksCommunity() {
     }
     saveEvents(updatedEvents);
 
-    // Sync to Supabase
-    await insertEventToDb(newEv);
+    // Universal Database Sync to Supabase
+    const { error } = await insertEventToDb(newEv);
+    if (error) {
+      alert("Error saving event to shared database: " + (error.message || JSON.stringify(error)));
+      return;
+    }
+
+    // Refresh directly from database to ensure all fields are synchronized
+    await fetchEventsFromDatabase();
+
+    // Broadcast change to other open browser tabs
+    try {
+      if (typeof window !== "undefined" && "BroadcastChannel" in window) {
+        const bc = new BroadcastChannel("geeks_community_sync");
+        bc.postMessage("sync_events");
+        bc.close();
+      }
+    } catch (_) {}
 
     // Reset modal
     setEditingEventId(null);
@@ -857,7 +941,20 @@ export default function GeeksCommunity() {
     if (confirm("Are you sure you want to remove this event?")) {
       const remaining = events.filter((ev) => ev.id !== id);
       saveEvents(remaining);
-      await deleteEventFromDb(id);
+      const { error } = await deleteEventFromDb(id);
+      if (error) {
+        alert("Error deleting event from shared database: " + (error.message || JSON.stringify(error)));
+        return;
+      }
+      await fetchEventsFromDatabase();
+
+      try {
+        if (typeof window !== "undefined" && "BroadcastChannel" in window) {
+          const bc = new BroadcastChannel("geeks_community_sync");
+          bc.postMessage("sync_events");
+          bc.close();
+        }
+      } catch (_) {}
     }
   };
 
@@ -901,21 +998,27 @@ export default function GeeksCommunity() {
     setIsCoordModalOpen(true);
   };
 
-  const handleCoordPhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleCoordPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    if (file.size > 5 * 1024 * 1024) {
-      setCoordAvatarError("Photo must be less than 5MB");
+    if (file.size > 10 * 1024 * 1024) {
+      setCoordAvatarError("Photo must be less than 10MB");
       return;
     }
     setCoordAvatarError("");
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === "string") {
-        setCoordAvatar(reader.result);
-      }
-    };
-    reader.readAsDataURL(file);
+    try {
+      // Auto-compress avatar photo for instant Supabase sync
+      const compressed = await compressImage(file, 800, 0.75);
+      setCoordAvatar(compressed);
+    } catch {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          setCoordAvatar(reader.result);
+        }
+      };
+      reader.readAsDataURL(file);
+    }
   };
 
   const handleSaveCoordinator = async (e: React.FormEvent) => {
@@ -948,7 +1051,26 @@ export default function GeeksCommunity() {
     }
 
     saveCoordinators(updated);
-    await upsertCoordinatorToDb(item);
+
+    // Save to Supabase (Universal shared database)
+    const { error } = await upsertCoordinatorToDb(item);
+    if (error) {
+      alert("Error saving coordinator to shared database: " + (error.message || JSON.stringify(error)));
+      return;
+    }
+
+    // Refresh directly from database to ensure all fields are synchronized
+    await fetchCoordinatorsFromDatabase();
+
+    // Broadcast change to other open browser tabs
+    try {
+      if (typeof window !== "undefined" && "BroadcastChannel" in window) {
+        const bc = new BroadcastChannel("geeks_community_sync");
+        bc.postMessage("sync_coordinators");
+        bc.close();
+      }
+    } catch (_) {}
+
     setIsCoordModalOpen(false);
   };
 
@@ -961,7 +1083,20 @@ export default function GeeksCommunity() {
     if (confirm("Are you sure you want to remove this coordinator?")) {
       const remaining = coordinators.filter((c) => c.id !== id);
       saveCoordinators(remaining);
-      await deleteCoordinatorFromDb(id);
+      const { error } = await deleteCoordinatorFromDb(id);
+      if (error) {
+        alert("Error deleting coordinator from shared database: " + (error.message || JSON.stringify(error)));
+        return;
+      }
+      await fetchCoordinatorsFromDatabase();
+
+      try {
+        if (typeof window !== "undefined" && "BroadcastChannel" in window) {
+          const bc = new BroadcastChannel("geeks_community_sync");
+          bc.postMessage("sync_coordinators");
+          bc.close();
+        }
+      } catch (_) {}
     }
   };
 
@@ -1945,10 +2080,10 @@ export default function GeeksCommunity() {
 
               <div className="flex flex-wrap items-center justify-center gap-3 mt-6">
                 <span className="px-4 py-1.5 rounded-full border border-white/[0.08] bg-[#101013] text-xs font-sans tracking-wider text-[#E8D5B5]">
-                  {teacherCoordinators.length} Faculty Advisors
+                  {teacherCoordinators.length} Faculty Coordinators
                 </span>
                 <span className="px-4 py-1.5 rounded-full border border-white/[0.08] bg-[#101013] text-xs font-sans tracking-wider text-[#E8D5B5]">
-                  {studentCoordinators.length} Student Directors
+                  {studentCoordinators.length} Student Coordinators
                 </span>
                 <button
                   onClick={openCreateCoordModal}
@@ -1960,14 +2095,14 @@ export default function GeeksCommunity() {
               </div>
             </div>
 
-            {/* 1. TEACHER COORDINATORS - CENTERED */}
+            {/* 1. FACULTY COORDINATORS - CENTERED */}
             <div className="space-y-8 flex flex-col items-center">
               <div className="flex flex-col items-center text-center max-w-xl mx-auto">
                 <div className="inline-flex items-center gap-2 px-3 py-0.5 rounded-full border border-[#E8D5B5]/20 bg-[#E8D5B5]/5 text-[#E8D5B5] text-[10px] font-sans tracking-[0.2em] uppercase mb-2">
-                  <span>Faculty Advisory Board</span>
+                  <span>Faculty Coordination Board</span>
                 </div>
                 <h3 className="text-2xl sm:text-3xl font-normal text-white tracking-tight">
-                  Faculty <span className="font-serif italic text-[#E8D5B5]">Advisors</span>
+                  Faculty <span className="font-serif italic text-[#E8D5B5]">Coordinators</span>
                 </h3>
                 <p className="font-sans text-xs sm:text-sm text-[#9c968f] mt-1.5">
                   Institutional mentorship providing guidance, laboratory resources, and technical support.
@@ -1977,7 +2112,7 @@ export default function GeeksCommunity() {
 
               {teacherCoordinators.length === 0 ? (
                 <div className="py-10 px-6 text-center rounded-2xl border border-white/[0.08] bg-[#101013] text-[#9c968f] text-xs font-sans">
-                  No teacher coordinators listed yet. Click &quot;Add Coordinator&quot; to register faculty advisors.
+                  No faculty coordinators listed yet. Click &quot;Add Coordinator&quot; to register faculty coordinators.
                 </div>
               ) : (
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-8 w-full max-w-6xl mx-auto">
@@ -2015,7 +2150,7 @@ export default function GeeksCommunity() {
                         </div>
 
                         <span className="text-[10px] font-sans font-medium px-3 py-1 rounded-full border border-[#E8D5B5]/30 bg-[#E8D5B5]/5 text-[#E8D5B5] mb-2.5 tracking-[0.15em] uppercase">
-                          Faculty Mentor
+                          Faculty Coordinator
                         </span>
 
                         <h4 className="font-sans font-medium text-xl sm:text-2xl text-white group-hover:text-[#E8D5B5] transition-colors">
@@ -2074,7 +2209,7 @@ export default function GeeksCommunity() {
                   <span>Student Executive Council</span>
                 </div>
                 <h3 className="text-2xl sm:text-3xl font-normal text-white tracking-tight">
-                  Student <span className="font-serif italic text-[#E8D5B5]">Directors</span>
+                  Student <span className="font-serif italic text-[#E8D5B5]">Coordinators</span>
                 </h3>
                 <p className="font-sans text-xs sm:text-sm text-[#9c968f] mt-1.5">
                   Lead student coordinators orchestrating software repositories, hackathons, robotics labs, and community sessions.
@@ -2124,7 +2259,7 @@ export default function GeeksCommunity() {
 
                         {/* Student Coordinator Badge */}
                         <span className="text-[10px] font-sans font-medium px-3.5 py-1 rounded-full border border-[#E8D5B5]/30 bg-[#E8D5B5]/5 text-[#E8D5B5] mb-3 tracking-[0.15em] uppercase">
-                          Student Director
+                          Student Coordinator
                         </span>
 
                         {/* Name - Prominent Editorial Typography */}
@@ -3066,8 +3201,8 @@ export default function GeeksCommunity() {
                         : "border-white/10 bg-[#08080a] text-[#9c968f] hover:border-white/20"
                     }`}
                   >
-                    <div className="font-sans font-medium text-xs sm:text-sm">Teacher Coordinator</div>
-                    <div className="text-[10px] font-sans opacity-70 mt-0.5">Faculty Advisory Board</div>
+                    <div className="font-sans font-medium text-xs sm:text-sm">Faculty Coordinator</div>
+                    <div className="text-[10px] font-sans opacity-70 mt-0.5">Faculty Coordination Council</div>
                   </button>
                   <button
                     type="button"
@@ -3108,7 +3243,7 @@ export default function GeeksCommunity() {
                     required
                     value={coordRole}
                     onChange={(e) => setCoordRole(e.target.value)}
-                    placeholder={coordType === "teacher" ? "Chief Teacher Coordinator" : "Core Coordinator & Software Lead"}
+                    placeholder={coordType === "teacher" ? "Chief Faculty Coordinator" : "Student Coordinator & Software Lead"}
                     className="w-full px-4 py-2.5 rounded-xl border border-white/10 bg-[#08080a] text-white text-xs sm:text-sm focus:outline-none focus:border-[#E8D5B5] transition-colors"
                   />
                 </div>
@@ -3492,7 +3627,7 @@ export default function GeeksCommunity() {
                         className="w-full px-3 py-2 rounded-xl border border-white/10 bg-[#08080a] text-white text-xs font-sans focus:outline-none focus:border-[#E8D5B5] transition-colors"
                       >
                         <option value="Student Coordinator">Student Coordinator</option>
-                        <option value="Teacher Coordinator">Teacher Coordinator</option>
+                        <option value="Faculty Coordinator">Faculty Coordinator</option>
                         <option value="Technical Lead">Technical Lead</option>
                         <option value="Hackathon Event Lead">Hackathon Event Lead</option>
                       </select>
